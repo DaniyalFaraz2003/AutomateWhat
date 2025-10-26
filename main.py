@@ -26,6 +26,15 @@ def main():
     Main entry point for the AutomateWhat application.
     """
     try:
+        # Enable DPI awareness on Windows to handle high DPI displays correctly
+        try:
+            import ctypes
+            # Tell Windows we are DPI aware
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)  # PROCESS_SYSTEM_DPI_AWARE
+        except Exception as e:
+            # Not on Windows or DPI awareness already set
+            pass
+        
         # Setup logging
         logger = setup_logger()
         logger.info("Starting AutomateWhat Application")

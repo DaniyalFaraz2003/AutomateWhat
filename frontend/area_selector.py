@@ -4,7 +4,6 @@ Provides visual area selection with drag & drop functionality.
 """
 
 import tkinter as tk
-import logging
 from typing import Optional, Callable
 
 
@@ -19,7 +18,6 @@ class AreaSelector:
             parent_window: Parent window to minimize
         """
         self.parent_window = parent_window
-        self.logger = logging.getLogger("AutomateWhat.AreaSelector")
         
         self.overlay = None
         self.canvas = None
@@ -29,35 +27,92 @@ class AreaSelector:
         self.selected_area = None
         self.is_selecting = False
         
+        # Overlay position offsets for coordinate conversion
+        self.overlay_offset_x = 0
+        self.overlay_offset_y = 0
+        
         # Callback for area selection
         self.on_area_selected: Optional[Callable] = None
     
     def show_selector(self):
         """Show the area selection overlay."""
+        # Clean up any existing overlay first
+        if self.overlay:
+            try:
+                self.overlay.destroy()
+            except:
+                pass
+            self.overlay = None
+            self.canvas = None
+        
+        # Reset selection state
+        self.is_selecting = False
+        self.current_rect = None
+        
         # Hide parent window
         self.parent_window.withdraw()
         
-        # Get screen dimensions
+        # Wait for window to be hidden
+        self.parent_window.update()
+        
+        # Small delay to ensure parent is fully hidden
+        import time
+        time.sleep(0.1)
+        
+        # Get screen dimensions - force update
         screen_width = self.parent_window.winfo_screenwidth()
         screen_height = self.parent_window.winfo_screenheight()
         
         # Create overlay window at (0, 0) to cover entire screen
         self.overlay = tk.Toplevel()
         self.overlay.title("Select Area - Drag to Select")
+        
+        # Set geometry FIRST before attributes to ensure proper fullscreen positioning
+        # Use negative coordinates to account for potential window manager offsets
         self.overlay.geometry(f"{screen_width}x{screen_height}+0+0")
+        
+        # Update to apply geometry
+        self.overlay.update_idletasks()
+        
+        # Now set attributes after geometry is applied
+        self.overlay.overrideredirect(True)  # Remove window decorations
         self.overlay.attributes('-alpha', 0.3)
         self.overlay.configure(bg='black')
         self.overlay.attributes('-topmost', True)
-        self.overlay.overrideredirect(True)  # Remove window decorations
+        
+        # Update after setting attributes
+        self.overlay.update_idletasks()
+        
+        # Force position to exactly (0, 0) multiple times to ensure it sticks
+        for _ in range(3):
+            self.overlay.geometry(f"+0+0")
+            self.overlay.update_idletasks()
+        
+        # On Windows, try to force fullscreen
+        try:
+            self.overlay.wm_attributes('-fullscreen', True)
+        except:
+            pass
+        
+        # Final geometry update
+        self.overlay.geometry(f"{screen_width}x{screen_height}+0+0")
+        self.overlay.update_idletasks()
+        
         self.overlay.focus_force()
         
-        # Create canvas for drawing
+        # Store the actual overlay position for coordinate conversion
+        self.overlay.update_idletasks()
+        self.overlay_offset_x = self.overlay.winfo_x()
+        self.overlay_offset_y = self.overlay.winfo_y()
+        
+        # Create canvas for drawing - use same size as overlay
         self.canvas = tk.Canvas(
             self.overlay,
             highlightthickness=0,
             bg='black',
             width=screen_width,
-            height=screen_height
+            height=screen_height,
+            scrollregion=(0, 0, screen_width, screen_height)
         )
         self.canvas.pack(fill='both', expand=True)
         
@@ -75,8 +130,6 @@ class AreaSelector:
         
         # Add instructions
         self._add_instructions()
-        
-        self.logger.info(f"Area selector overlay shown at {screen_width}x{screen_height}")
     
     def _add_instructions(self):
         """Add instructions to the overlay."""
@@ -132,40 +185,35 @@ class AreaSelector:
         
         self.is_selecting = False
         
-        # Get final coordinates (in screen space)
+        # Get final coordinates (in canvas space)
         x1 = min(self.start_x, event.x)
         y1 = min(self.start_y, event.y)
         x2 = max(self.start_x, event.x)
         y2 = max(self.start_y, event.y)
         
-        # Calculate selected area
+        # Calculate selected area dimensions
         width = x2 - x1
         height = y2 - y1
         
-        # Since overlay is at (0, 0), canvas coordinates = screen coordinates
-        screen_x = x1
-        screen_y = y1
-        screen_width = width
-        screen_height = height
-        
-        self.logger.info(f"Canvas coords: {x1}, {y1}, {width}x{height}")
-        self.logger.info(f"Screen coords: {screen_x}, {screen_y}, {screen_width}x{screen_height}")
-        
         # Validate minimum size
         if width < 50 or height < 50:
-            self.logger.warning(f"Selection too small: {width}x{height}")
             self._show_error_message("Selection too small. Minimum size: 50x50 pixels.")
             return
         
+        # Convert canvas coordinates to screen coordinates
+        # Use the stored overlay offset to account for any window manager positioning
+        screen_x = x1 + self.overlay_offset_x
+        screen_y = y1 + self.overlay_offset_y
+        screen_width = width
+        screen_height = height
+        
         # Store selected area in screen coordinates
         self.selected_area = {
-            'x': screen_x,
-            'y': screen_y,
-            'width': screen_width,
-            'height': screen_height
+            'x': int(screen_x),
+            'y': int(screen_y),
+            'width': int(screen_width),
+            'height': int(screen_height)
         }
-        
-        self.logger.info(f"Final area selected: {screen_x}, {screen_y}, {screen_width}x{screen_height}")
         
         # Call callback
         if self.on_area_selected:
@@ -176,7 +224,6 @@ class AreaSelector:
     
     def _on_cancel(self, event):
         """Handle cancel event (ESC key)."""
-        self.logger.info("Area selection cancelled")
         self._close_overlay()
     
     def _show_error_message(self, message):
@@ -206,8 +253,6 @@ class AreaSelector:
         
         # Restore parent window
         self.parent_window.deiconify()
-        
-        self.logger.info("Area selector closed")
     
     def set_callback(self, callback: Callable):
         """
