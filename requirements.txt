@@ -1,0 +1,36 @@
+"""
+Requirements for the AutomateWhat GUI application.
+"""
+
+# Core GUI framework
+tkinter  # Built-in with Python
+
+# AI and ML libraries (from your existing pipeline)
+torch>=2.0.0
+transformers>=4.30.0
+ultralytics>=8.0.0
+Pillow>=9.0.0
+numpy>=1.21.0
+
+# Screen capture libraries
+mss>=9.0.0  # Fast cross-platform screenshots
+opencv-python>=4.8.0  # For image processing
+
+# Additional GUI enhancements
+customtkinter>=5.2.0  # Modern tkinter styling
+ttkbootstrap>=1.10.0  # Bootstrap themes for tkinter
+
+# Utilities
+pathlib  # Built-in with Python
+logging  # Built-in with Python
+datetime  # Built-in with Python
+
+# Development and testing
+pytest>=7.0.0
+pytest-cov>=4.0.0
+black>=23.0.0
+flake8>=6.0.0
+
+# Documentation
+sphinx>=7.0.0
+sphinx-rtd-theme>=1.3.0
