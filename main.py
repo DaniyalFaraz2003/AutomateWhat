@@ -12,6 +12,7 @@ import os
 import tkinter as tk
 from tkinter import messagebox
 import logging
+from pathlib import Path
 
 # Add the project root to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -43,7 +44,8 @@ def main():
         config = AppConfig()
         config.window_width = 1400
         config.window_height = 700
-        
+        config.root_dir = Path(__file__).parent
+
         # Create and configure the main window
         root = tk.Tk()
         app = MainWindow(root, config)

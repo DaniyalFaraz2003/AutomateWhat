@@ -13,6 +13,7 @@ import threading
 from config.theme import WhatsAppTheme
 from backend.model_manager import ModelManager
 from backend.screen_capture import ScreenCaptureManager
+from backend.ai_pipeline import AIPipelineManager
 from frontend.area_selector import AreaSelector
 
 
@@ -44,6 +45,13 @@ class MainLayout:
         self.screen_capture = ScreenCaptureManager(config)
         self._setup_screen_capture_callbacks()
         
+        # AI pipeline manager (uses loaded model from ModelManager)
+        self.ai_pipeline = AIPipelineManager(
+            config,
+            get_loaded_model_callable=self.get_loaded_model,
+        )
+        self._setup_ai_callbacks()
+
         # Initialize area selector
         self.area_selector = AreaSelector(root)
         self.area_selector.set_callback(self._on_area_selected)
@@ -310,8 +318,8 @@ class MainLayout:
         )
         self.interval_entry.pack(anchor='w', pady=(0, 15))
         
-        # Auto-response toggle
-        self.auto_response_var = tk.BooleanVar()
+        # Auto-response toggle (default ON)
+        self.auto_response_var = tk.BooleanVar(value=True)
         self.auto_response_check = tk.Checkbutton(
             settings_frame,
             text="Auto-generate responses",
@@ -729,6 +737,19 @@ class MainLayout:
         # Update UI in main thread
         self.root.after(0, update_ui)
         self.logger.info("Screenshot captured")
+
+        # Process each screenshot (blocking change-detection)
+        try:
+            screenshot_path = self.screen_capture.get_last_screenshot_path()
+            if self.model_manager.is_model_loaded():
+                result = self.ai_pipeline.process_latest_if_changed(screenshot_path)
+                if result is not None:
+                    self._update_ui_with_ai_result(result)
+            else:
+                # Hint to load model
+                self.status_text.config(text="Load a model to enable AI responses")
+        except Exception as e:
+            self.logger.error(f"Failed to process screenshot for AI: {str(e)}")
     
     def _on_screen_area_selected(self, area):
         """Called when screen area is selected."""
@@ -832,6 +853,89 @@ class MainLayout:
             self.logger.error(f"Error updating live preview: {str(e)}")
             import traceback
             self.logger.error(traceback.format_exc())
+
+    def _setup_ai_callbacks(self):
+        """Setup callbacks from AI pipeline to update UI."""
+        def on_started():
+            try:
+                self.status_text.config(text="Processing screenshot...")
+                if hasattr(self, 'status_indicator'):
+                    self.status_indicator.config(text="● Processing", fg=self.theme.INFO)
+            except Exception:
+                pass
+
+        def on_finished(result):
+            self._update_ui_with_ai_result(result)
+
+        def on_error(message):
+            try:
+                self.status_text.config(text=f"Error: {message}")
+                if hasattr(self, 'status_indicator'):
+                    self.status_indicator.config(text="● Error", fg=self.theme.ERROR)
+            except Exception:
+                pass
+
+        self.ai_pipeline.set_callbacks(on_started=on_started, on_finished=on_finished, on_error=on_error)
+
+    def _update_ui_with_ai_result(self, result):
+        """Update conversation panel and response text from AI result."""
+        try:
+            last_is_you = result.get('last_message_is_you', False)
+            last_is_other = result.get('last_message_is_other', False)
+            
+            self.logger.info(f"UI Update: last_is_YOU={last_is_you}, last_is_OTHER={last_is_other}")
+            
+            # Always rewrite conversation history with full conversation state
+            self.conversation_text.config(state='normal')
+            self.conversation_text.delete('1.0', 'end')
+            
+            # Write full conversation from backend state
+            full_conversation = [m for m in result.get('conversation', []) if not m.get('is_empty')]
+            for m in full_conversation:
+                sender = m.get('sender', 'OTHER')
+                text = m.get('text', '')
+                line = f"[{sender}] {text}\n"
+                self.conversation_text.insert('end', line)
+            self.conversation_text.config(state='disabled')
+            
+            self.logger.info(f"Updated conversation history with {len(full_conversation)} messages")
+
+            # Handle AI response based on LAST message sender
+            if last_is_you:
+                # LAST message was from YOU: clear AI response
+                self.response_text.delete('1.0', 'end')
+                self.logger.info("Cleared AI response (LAST message from YOU)")
+            elif last_is_other:
+                # LAST message was from OTHER: update with new AI response
+                ai_resp = result.get('ai_response')
+                if ai_resp is not None and ai_resp != "":
+                    self.response_text.delete('1.0', 'end')
+                    self.response_text.insert('1.0', ai_resp)
+                    self.logger.info(f"Updated AI response: {ai_resp[:50]}")
+                else:
+                    self.logger.warning("LAST message from OTHER but no AI response generated")
+            else:
+                # No new messages or force_process initial run
+                ai_resp = result.get('ai_response')
+                if ai_resp is not None and ai_resp != "":
+                    self.response_text.delete('1.0', 'end')
+                    self.response_text.insert('1.0', ai_resp)
+                    self.logger.info(f"Initial AI response: {ai_resp[:50]}")
+            
+            # Handle failure case
+            if result.get('success') is False:
+                self.response_text.delete('1.0', 'end')
+                self.response_text.insert('1.0', result.get('message', 'No response'))
+                self.logger.error(f"Processing failed: {result.get('message')}")
+
+            # Status indicator
+            self.status_text.config(text="Ready")
+            if hasattr(self, 'status_indicator'):
+                self.status_indicator.config(text="● Model Ready", fg=self.theme.SUCCESS)
+        except Exception as e:
+            self.logger.error(f"Failed to update UI with AI result: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
     
     def _select_recording_area(self):
         """Select screen recording area."""
@@ -869,6 +973,19 @@ class MainLayout:
                 )
                 self.recording_status.config(text="Recording...")
                 self.logger.info("Recording started")
+                # Immediately trigger AI processing once at start (force)
+                try:
+                    if self.model_manager.is_model_loaded():
+                        screenshot_path = self.screen_capture.get_last_screenshot_path()
+                        result = self.ai_pipeline.process_latest_if_changed(screenshot_path, force_process=True)
+                        if result is not None:
+                            self._update_ui_with_ai_result(result)
+                    else:
+                        self.status_text.config(text="Load a model to enable AI responses")
+                        if hasattr(self, 'status_indicator'):
+                            self.status_indicator.config(text="● Model Required", fg=self.theme.WARNING)
+                except Exception as e:
+                    self.logger.error(f"Immediate AI trigger failed: {str(e)}")
             else:
                 messagebox.showerror("Recording Error", "Could not start recording. Please select an area first.")
         
