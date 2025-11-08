@@ -480,23 +480,6 @@ class MainLayout:
             activeforeground=self.theme.TEXT_PRIMARY
         )
         self.regenerate_btn.pack(side='left', padx=(0, 8))
-        
-        # Send button
-        self.send_btn = tk.Button(
-            actions_frame,
-            text="📤 Send",
-            command=self._send_response,
-            bg=self.theme.WHATSAPP_GREEN,
-            fg=self.theme.TEXT_PRIMARY,
-            font=('Segoe UI', 9, 'bold'),
-            relief='flat',
-            padx=15,
-            pady=6,
-            cursor='hand2',
-            activebackground=self.theme.WHATSAPP_DARK_GREEN,
-            activeforeground=self.theme.TEXT_PRIMARY
-        )
-        self.send_btn.pack(side='left', padx=(0, 8))
     
     def _create_conversation_section(self):
         """Create the conversation history section."""
@@ -991,15 +974,40 @@ class MainLayout:
         
     def _copy_response(self):
         """Copy AI response to clipboard."""
-        self.logger.info("Copy response requested")
-        # TODO: Implement copy functionality
+        try:
+            # Get the text from the response text widget
+            response_text = self.response_text.get("1.0", "end-1c").strip()
+            
+            if not response_text:
+                messagebox.showinfo("No Response", "There is no response to copy.")
+                return
+            
+            # Clear the clipboard
+            self.root.clipboard_clear()
+            
+            # Append the response text to clipboard
+            self.root.clipboard_append(response_text)
+            
+            # Update the clipboard (required on some systems)
+            self.root.update()
+            
+            # Show success message
+            self.logger.info("Response copied to clipboard")
+            self.status_text.config(text="✓ Response copied to clipboard")
+            
+            # Change button color temporarily for visual feedback
+            original_bg = self.copy_btn.cget('bg')
+            self.copy_btn.config(bg=self.theme.SUCCESS)
+            
+            # Reset button color after 1 second
+            self.root.after(1000, lambda: self.copy_btn.config(bg=original_bg))
+            
+        except Exception as e:
+            self.logger.error(f"Error copying to clipboard: {str(e)}")
+            messagebox.showerror("Copy Error", f"Failed to copy to clipboard: {str(e)}")
         
     def _regenerate_response(self):
         """Regenerate AI response."""
         self.logger.info("Regenerate response requested")
         # TODO: Implement regeneration
-        
-    def _send_response(self):
-        """Send response to WhatsApp."""
-        self.logger.info("Send response requested")
-        # TODO: Implement send functionality
+
